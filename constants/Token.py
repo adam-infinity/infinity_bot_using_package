@@ -1,0 +1,2 @@
+TOKEN_TYPE_ERC20 = 1  # Normal token
+TOKEN_TYPE_ERC721 = 2  # NFT

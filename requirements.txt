@@ -1,0 +1,5 @@
+requests~=2.31.0
+web3~=5.31.4
+python-dotenv~=1.0.0
+PyYAML~=6.0
+websocket-client~=1.6.0

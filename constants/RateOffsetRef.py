@@ -1,0 +1,2 @@
+BBA = 'bba'
+MID = 'mid'

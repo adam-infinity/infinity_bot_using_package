@@ -1,0 +1,5 @@
+BORROW = True
+LEND = False
+
+BORROW_NUM = 1
+LEND_NUM = 0
