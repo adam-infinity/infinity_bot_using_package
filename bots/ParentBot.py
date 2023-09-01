@@ -2,7 +2,7 @@ from bots import TokenBot as Tb
 from bot_params import TokenParams as Tp
 import copy
 import logging
-from other import MiscHelperFunctions as Mhf
+from misc import MiscHelperFunctions as Mhf
 from threading import Lock, Thread
 from time import sleep
 

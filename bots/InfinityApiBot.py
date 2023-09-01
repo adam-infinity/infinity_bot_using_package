@@ -1,13 +1,13 @@
 from collections import deque
 from constants import OrderSide as Osi
+from constants import OrderStatus as Ost
 from constants import RollOverTime as Rot
 from constants import Token
 import datetime as dt
 import logging
 import os
-from other import InfinityAPIHandler as Inf
-from other import MiscHelperFunctions as Mhf
-from rest_client import infinity_client
+from misc import MiscHelperFunctions as Mhf
+from infinity_exchange.rest_client import rest_client
 from threading import Thread
 from time import sleep
 import uuid
@@ -31,7 +31,6 @@ class InfinityApiBot:
         self.cfg = Mhf.load_config_file_etc()
         self.bot_name = 'InfAPIBot'
         self.address = self.cfg['wallet_address']
-        # self.wallet_id = XXXX  # TODO - Currently hardcoded. Need to add function in infinity_client.py to get this
         self.chain_id = self.cfg['chainId']
         self.user_agent = self.cfg['user-agent']
         self.domain = self.cfg['infinity_url']
@@ -40,7 +39,6 @@ class InfinityApiBot:
         self.send_orders = send_orders
         self.cancel_orders = cancel_orders
 
-        # New code to handle/use infinity_rest_client
         sys_env = self.domain[8:11]
         match sys_env.lower():
             case 'uat':
@@ -50,24 +48,21 @@ class InfinityApiBot:
             case _:
                 raise Exception('Unrecognized system environment')
 
-        self.inf_rest = infinity_client.Client(
-            prod=is_prod_env,
+        self.inf_rest = rest_client.Client(
+            prod_env=is_prod_env,
             login=True,
             user_agent=self.user_agent,
             wallet_address=self.address,
-            wallet_id=None,  # Ok to leave blank
-            chain_id=self.chain_id,
             private_key=os.getenv('PRIVATE_KEY'),
             verify_tls=self.verify,
             logger=None)
-        # self.cookies = Inf.login(self.bot_name, self.address, self.chain_id, self.user_agent, self.domain, self.cfg, self.verify)  # TODO - Comment me out
-        self.wallets = self.inf_rest.get_user_wallets()['wallets']  # Inf.list_wallets(self.domain, self.cookies, self.verify)
+        self.wallets = self.inf_rest.get_user_wallets()['wallets']
         self.inf_rest._wallet_id = self.get_wallet_id()  # TODO - Do we want this starting with underscore? Do we want to set it within our code?
-        self.wallet_details = self.get_trading_wallet_details()  # Inf.list_wallet_details(self.get_wallet_id(), self.domain, self.cookies, self.verify)
+        self.wallet_details = self.get_trading_wallet_details()
 
-        self.floating_markets = None  # result['markets']
-        self.floating_tokens_and_prices = None  # result['tokens']
-        self.get_floating_markets_tokens_and_prices() # self.floating_markets_old, self.floating_tokens_and_prices_old = Inf.list_floating_rate_markets(self.domain, self.verify)
+        self.floating_markets = None
+        self.floating_tokens_and_prices = None
+        self.get_floating_markets_tokens_and_prices()
 
         self.fixed_markets = None
         self.fixed_markets_last_updated = None
@@ -86,13 +81,13 @@ class InfinityApiBot:
         if self.cancel_orders:
             if order_id not in self.cancelled_fixed_orders:
                 self.cancelled_fixed_orders.append(order_id)
-                self.inf_rest.cancel_fixed_rate_order_by_order_id(order_id)  # Inf.cancel_fixed_order(order_id, self.domain, self.cookies, self.verify)
+                self.inf_rest.cancel_fixed_rate_order_by_order_id(order_id)
 
     def cancel_floating_order(self, order_id):
         if self.cancel_orders:
             if order_id not in self.cancelled_floating_orders:
                 self.cancelled_floating_orders.append(order_id)
-                self.inf_rest.cancel_floating_rate_order_by_order_id(order_id)  # Inf.cancel_floating_order(order_id, self.domain, self.cookies, self.verify)
+                self.inf_rest.cancel_floating_rate_order_by_order_id(order_id)
 
     def check_if_all_fixed_rate_market_dates_look_ok(self):
         result = True
@@ -243,15 +238,13 @@ class InfinityApiBot:
 
     def get_floating_rate_market_history(self, floating_market_id):
         result = self.inf_rest.get_floating_rate_market_details_by_market_id(floating_market_id)
-        return float(result['market']['price'])  # Inf.get_floating_rate_market_history(floating_market_id, self.domain, self.verify)
+        return float(result['market']['price'])
 
     def get_recent_fixed_rate_market_transactions(self, fixed_rate_market_id):
         result = self.inf_rest.get_recent_fixed_rate_transactions_by_market_id(fixed_rate_market_id, 1)
-        return float(result['trxs'][0]['price'])  # Inf.get_recent_fixed_rate_market_transactions(fixed_rate_market_id,  self.domain, self.verify)
+        return float(result['trxs'][0]['price'])
 
-    def get_floating_rate_orders(self, token_id, wallet_id=None):
-        if wallet_id is None:
-            wallet_id = self.get_wallet_id()
+    def get_floating_rate_orders(self, token_id):
         market_id = self.get_market_id_etc_from_token_id(token_id, True, 0)
         orders = self.find_active_orders_by_wallet_and_market(market_id, floating_only=True)
         return orders
@@ -328,7 +321,7 @@ class InfinityApiBot:
         # logging.info('Getting fixed rate markets... please wait')
         fixed_rate_markets = {}
         for token_id in self.floating_tokens_and_prices:
-            fixed_rate_markets[token_id] = self.inf_rest.get_active_fixed_rate_markets_by_token_id(token_id)['markets']  # Inf.list_fixed_rate_markets(self.domain, token_id, self.verify)
+            fixed_rate_markets[token_id] = self.inf_rest.get_active_fixed_rate_markets_by_token_id(token_id)['markets']
         # logging.info('Getting fixed rate markets... DONE')
         self.fixed_markets = fixed_rate_markets
         all_fixed_rate_market_dates_look_ok = self.check_if_all_fixed_rate_market_dates_look_ok()
@@ -366,36 +359,75 @@ class InfinityApiBot:
                 os._exit(1)
             if self.fixed_markets_last_updated < last_rollover_datetime():
                 os._exit(1)
-            # if not Inf.infinity_servers_are_ok(self.domain, self.verify):
-            #     os._exit(1)
             if self.ok_to_update_active_orders:
                 self.update_active_orders()
             self.update_last_prices()
             self.update_bid_ask_last_rates()
-            self.wallet_details = self.inf_rest.get_user_wallet_details()['wallet']  # Inf.list_wallet_details(self.get_wallet_id(), self.domain, self.cookies, self.verify)
+            self.wallet_details = self.inf_rest.get_user_wallet_details()['wallet']
             sleep(self.cfg['inf_api_bot_refresh_minutes'] * 60)
 
     def send_order(
-            self, market_id, is_floating_market, order_type, side, qty, price, qty_step, price_step, log_prefix=''):
+            self, market_id, is_floating_market, order_type, side, qty, price):
         if self.send_orders:
             deduplication = uuid.uuid4().hex[:8]
             if is_floating_market:
-                self.inf_rest.create_floating_rate_order(market_id, order_type, side, qty, price, deduplication)
+                self.inf_rest.create_floating_rate_order(market_id, order_type, side, qty, deduplication, price)
             else:
-                self.inf_rest.create_fixed_rate_order(market_id, order_type, side, qty, price, deduplication)
-            # Inf.send_order(
-            #    self.get_wallet_id(), market_id, is_floating_market, order_type, side, qty, price, qty_step, price_step,
-            #    self.user_agent, self.domain, self.cookies, self.verify, log_prefix)
+                self.inf_rest.create_fixed_rate_order(market_id, order_type, side, qty, deduplication, price)
 
     def start_bot(self):
         Thread(target=self.run_loop, daemon=True).start()
 
+    def fetch_all_floating_and_fixed_active_orders_by_wallet(self):
+        # FLOATING
+        logging.info('Getting all floating rate orders... please wait')
+        active_floating_orders = []
+        start_id = 0
+        n_orders = 0
+        while True:
+            orders = []
+            try:
+                orders = self.inf_rest.get_users_floating_rate_orders(pending=True, start_id=start_id, limit=100)['orders']
+            except Exception as e:
+                logging.warning(f'Error {e} - Cannot retrieve orders')
+            if len(orders) == 0:
+                break
+            for order in orders:
+                if order['status'] == Ost.STATUS_ON_BOOK:
+                    active_floating_orders.append(order)
+            start_id = orders[-1]['orderId'] - 1
+            n_orders = n_orders + len(orders)
+            logging.debug(n_orders)
+        logging.info('Getting all floating rate orders... DONE')
+        logging.debug(f'# Floating orders = {n_orders}')
+
+        # FIXED
+        logging.info('Getting all fixed rate orders... please wait')
+        active_fixed_orders = []
+        start_id = 0
+        n_orders = 0
+        while True:
+            orders = []
+            try:
+                orders = self.inf_rest.get_users_fixed_rate_orders(pending=True, start_id=start_id, limit=100)
+            except Exception as e:
+                logging.warning(f'Error {e} - Cannot retrieve orders')
+            if len(orders) == 0:
+                break
+            for order in orders:
+                if order['status'] == Ost.STATUS_ON_BOOK:
+                    active_fixed_orders.append(order)
+            start_id = orders[-1]['orderId'] - 1
+            n_orders = n_orders + len(orders)
+            logging.debug(n_orders)
+        logging.info('Getting all fixed rate orders... DONE')
+        logging.debug(f'# Fixed orders = {n_orders}')
+
+        return active_floating_orders, active_fixed_orders
+
     def update_active_orders(self):
-        # result_floating = self.inf_rest.get_users_floating_rate_orders()
-        # result_fixed = self.inf_rest.get_users_fixed_rate_orders()
         self.active_floating_orders, self.active_fixed_orders =\
-            Inf.fetch_all_floating_and_fixed_active_orders_by_wallet(
-                self.get_wallet_id(), 999999, self.domain, self.cookies, self.verify)
+            self.fetch_all_floating_and_fixed_active_orders_by_wallet()
         pass
 
     def update_bid_ask_last_rates(self):
@@ -403,12 +435,10 @@ class InfinityApiBot:
         for token_id in self.floating_markets:
             try:
                 self.bid_ask_last_rates[token_id] = self.inf_rest.get_current_best_bid_ask_by_token_id(token_id, None, min_bid_n_ask_size)
-                # response = Inf.fetch_bid_ask_last_rates(token_id, self.domain, min_bid_n_ask_size, self.verify)
-                # self.bid_ask_last_rates[token_id] = response.json()['data']
             except Exception as e:
                 logging.fatal(f'Error {e} - Cannot save bid ask last rate data in self.bid_ask_last_rates')
                 os._exit(1)
 
     def update_last_prices(self):
-        self.floating_tokens_and_prices = Mhf.convert_list_of_dicts_to_dict(self.inf_rest.get_token_details()['tokens'], 'tokenId')  # Inf.list_tokens(self.domain, self.verify)
+        self.floating_tokens_and_prices = Mhf.convert_list_of_dicts_to_dict(self.inf_rest.get_token_details()['tokens'], 'tokenId')
         pass

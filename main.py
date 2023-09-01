@@ -1,8 +1,7 @@
 from bots import InfinityApiBot as Inf
 from bots import ParentBot as Bot
 import logging
-from other import MiscHelperFunctions as Mhf
-
+from misc import MiscHelperFunctions as Mhf
 
 if __name__ == '__main__':
 

@@ -2,7 +2,7 @@ from constants import OrderSide as Osi
 from constants import OrderType as Ot
 from constants import RateOffsetRef as Ror
 import logging
-from other import MiscHelperFunctions as Mhf
+from misc import MiscHelperFunctions as Mhf
 from time import sleep
 
 
